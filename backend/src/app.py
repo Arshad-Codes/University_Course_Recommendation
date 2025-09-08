@@ -12,6 +12,9 @@ from prometheus_client import Counter, Histogram, generate_latest
 from fastapi.responses import PlainTextResponse
 from sentence_transformers import SentenceTransformer, util
 import torch
+import boto3
+from pathlib import Path
+
 
 # -----------------------
 # Config
@@ -92,13 +95,46 @@ def _load_everything():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Try local fine-tuned model folder first, else fallback to HF
+
+
+    
+    
+        # ----------------------------
+    # Download model from S3 if specified
+    # ----------------------------
+    s3_uri = os.getenv("MODEL_S3_URI")
+    if s3_uri:
+        bucket_name = s3_uri.replace("s3://", "").split("/")[0]
+        prefix = "/".join(s3_uri.replace("s3://", "").split("/")[1:])
+        local_model_dir = Path(MODEL_DIR)
+        local_model_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"Downloading model from {s3_uri} to {local_model_dir} ...")
+        s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "us-east-1"))
+
+        # list objects in prefix
+        resp = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+        if "Contents" not in resp:
+            raise RuntimeError(f"No files found in {s3_uri}")
+
+        for obj in resp["Contents"]:
+            key = obj["Key"]
+            if key.endswith("/"):  # skip folder marker
+                continue
+            local_path = local_model_dir / Path(key).name
+            s3.download_file(bucket_name, key, str(local_path))
+            print(f"Downloaded {key} -> {local_path}")
+
+    
+        # Try downloaded/local model folder first, else fallback to HF
     if os.path.isdir(MODEL_DIR) and any(os.scandir(MODEL_DIR)):
         model_path = MODEL_DIR
     else:
         model_path = HF_FALLBACK_MODEL
-
+        print(f"Warning: MODEL_DIR '{MODEL_DIR}' not found or empty, falling back to {HF_FALLBACK_MODEL}")
+    
     # Load SentenceTransformer once
+
     print(f"Loading model: {model_path}")
     model = SentenceTransformer(model_path, device=device)
 
