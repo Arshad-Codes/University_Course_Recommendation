@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+pandas
+numpy
+sentence-transformers
+torch
+prometheus-client
+python-dotenv
